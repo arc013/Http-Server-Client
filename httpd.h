@@ -14,5 +14,5 @@ void DieWithUserMessage(const char *msg, const char *detail);
 // Handle error with sys msg
 void DieWithSystemMessage(const char *msg);
 // Print socket address
-void HandleTCPClient(int clntSock);
+void HandleTCPClient(int clntSock, string doc_root);
 #endif // HTTPD_H

@@ -15,13 +15,17 @@ static const int MAX_REQUEST = 8192;
 void * ThreadMain(void * arg);
 struct ThreadArgs{
   int clnt_socket;
+  string doc_root;
 };
 
 
+struct HttpRawBuffer{
+  char buffer [MAX_REQUEST];
+
+};
+
 struct HttpMessage{
   char buffer[MAX_REQUEST];
-
-
 }; 
 
 struct HttpRequest{
@@ -100,6 +104,7 @@ void start_httpd(unsigned short port, string doc_root)
     if (thread_arg == NULL)
       cerr << "malloc failed"<<endl;
     thread_arg->clnt_socket = clntSock;
+    thread_arg->doc_root    = doc_root;
 
 
     pthread_t thread;
@@ -117,65 +122,111 @@ void * ThreadMain(void * thread_arg){
 
   pthread_detach (pthread_self());
 
-  int client_socket = ((struct ThreadArgs *) thread_arg)->clnt_socket;
+  int client_socket    = ((struct ThreadArgs *) thread_arg)->clnt_socket;
+  string doc_root = ((struct ThreadArgs *) thread_arg)->doc_root;
+
 
   free(thread_arg);
 
-  HandleTCPClient( client_socket);
+  HandleTCPClient( client_socket, doc_root);
 
   return thread_arg;
 
 }
 
 
-int FrameRequest(void* request){
+void send_response(int status, int clntSocket, string doc_root, void * request){
+
+  HttpRequest * reqptr = (HttpRequest *) request;
+
+  char * buffer;
+  if (status==200) {
+    buffer = (char *) "HTTP/1.1 200 OK\r\nServer: TritonSever\r\nLast-Modified: \r\nContent-Type: \r\nContent-Length: \r\n\r\n";
+    doc_root = doc_root+reqptr->path;
+  } else if (status == 400){
+    buffer = (char *) "HTTP/1.1 400 Client Error\r\nServer: TritonSever\r\n\r\n";
+  } else if (status == 403) {
+    buffer = (char *) "HTTP/1.1 403 Forbidden\r\nServer: TritonSever\r\n\r\n";
+
+  } else if (status == 404) {
+    buffer = (char *) "HTTP/1.1 404 Not Found\r\nServer: TritonSever\r\n\r\n";
+
+  } else {
+    // 500
+    buffer = (char *) "HTTP/1.1 500 Server Error\r\nServer: TritonSever\r\n\r\n";
+  }
+  ssize_t numBytesSent = send(clntSocket, buffer, strlen(buffer), 0);
+  if (numBytesSent != (ssize_t)strlen(buffer))
+      DieWithSystemMessage("send() failed");
+
+
+}
+
+int FrameRequest(void* raw_buf, void* message){
 
 
   printf("inside framing\n");
 
-  cout <<( (struct HttpMessage *) request) ->buffer << endl;
+ // cout <<( (struct HttpMessage *) request) ->buffer << endl;
   int i;
   
+
+  struct HttpRawBuffer * rawbufptr  = (struct HttpRawBuffer *) raw_buf ;
+  struct HttpMessage   * messageptr = (struct HttpMessage   *) message ;
   for ( i=0; i< MAX_REQUEST-3; i++ ){
-    char crlf1 =  ((struct HttpMessage *) request )-> buffer[i];
-    char crlf2 =  ((struct HttpMessage *) request )-> buffer[i+1];
-    char crlf3 =  ((struct HttpMessage *) request )-> buffer[i+2];
-    char crlf4 =  ((struct HttpMessage *) request )-> buffer[i+3];
-    printf("%c", crlf1);
+    char crlf1 =  rawbufptr -> buffer[i];
+    char crlf2 =  rawbufptr -> buffer[i+1];
+    char crlf3 =  rawbufptr -> buffer[i+2];
+    char crlf4 =  rawbufptr -> buffer[i+3];
+   /* printf("%c", crlf1);
     printf("%c", crlf2);
     printf("%c", crlf3);
-    printf("%c", crlf4);
+    printf("%c", crlf4);*/
     if (crlf1 == '\r' && crlf2 == '\n' && crlf3 == '\r' && crlf4 == '\n'){
-      return i;
+      memcpy(messageptr->buffer, rawbufptr->buffer, i+4 );
+      return i+3;
     }
   }
   return -1;
 }
 
-void Parse_startline_header ( void* message, void* request, int end){
+
+
+
+
+
+
+int Parse_startline_header ( void* message, void* request, int clntSocket, string doc_root){
 
 
   printf("does it go in parse\n");
 
   const char delim0 [] = "\r\n";
-  const char delim1 [] = "\r\n\r\n";
+ // const char delim1 [] = "\r\n\r\n";
   const char delim2 [] = " "; 
   const char delim3 [] = ": "; 
 
   struct HttpRequest * reqptr =  ((struct HttpRequest *) request);
   char * copy  = strdup ( ((struct HttpMessage *) message )-> buffer);
   char * point = strsep( &copy, delim2);
-  if (point != NULL){
-    reqptr -> method = point;
+  if (point == NULL){
+    send_response(400, clntSocket, doc_root, NULL );
+    return -1; 
   }
+  reqptr -> method = point;
   point = strsep (&copy, delim2);
-  if (point != NULL){
-    reqptr -> path = point;
+  if (point == NULL){
+    send_response(400, clntSocket, doc_root, NULL );
+    return -1;
   }
+  reqptr -> path = point;
+
   point = strsep (&copy, delim0);
-  if (point != NULL){
-    reqptr -> version = point;
+  if (point == NULL){
+    send_response(400, clntSocket, doc_root, NULL );
+    return -1;
   }
+  reqptr -> version = point;
 
   while (point!= NULL){
     point = strsep (&copy, delim3);
@@ -190,21 +241,27 @@ void Parse_startline_header ( void* message, void* request, int end){
       point = strsep(&copy, delim0);
     }
   }
-  
-
-
-  end = end + 3;
+  if ( reqptr->host == NULL || reqptr->connection == NULL)
+    send_response(400, clntSocket, doc_root, NULL );
+    return -1;  
+//  end = end + 3;
+ 
+  send_response(200, clntSocket, doc_root, request);
   cout << "struct for request: " << reqptr->method << reqptr->path<< reqptr->version << endl;
-  
-  
+ 
+
+  return 0;
  
 
 
 }
-void HandleTCPClient(int clntSock){
+void HandleTCPClient(int clntSock, string doc_root){
   char buffer[MAX_REQUEST]; 
   char repeat_buffer[MAX_REQUEST];
-  memset(repeat_buffer, '\0', MAX_REQUEST);
+  
+  struct HttpRawBuffer * raw_buf = (struct HttpRawBuffer*) malloc(sizeof(struct HttpRawBuffer));
+  memset(raw_buf, 0, sizeof(HttpRawBuffer));
+
 
   int byte_in_string = 0;
 
@@ -221,11 +278,14 @@ void HandleTCPClient(int clntSock){
 
   while (numBytesRcvd > 0) {
 
-    memcpy((message->buffer)+byte_in_string, buffer, numBytesRcvd);
+    memcpy((raw_buf->buffer)+byte_in_string, buffer, numBytesRcvd);
     byte_in_string += numBytesRcvd;
-    int did_receive = FrameRequest(message);  
+
+    //returns the position where the first request ends
+    int did_receive = FrameRequest(raw_buf, message); 
 
 
+  
 
   //  cout<< message->buffer <<endl;
 
@@ -233,8 +293,21 @@ void HandleTCPClient(int clntSock){
 
     //didn't receive \r\n
     if ( did_receive != -1) {
-      printf("does it go here?\n");
-      Parse_startline_header(message, request, did_receive);
+ //     printf("does it go here?\n");
+ //
+ //
+      
+      int status = Parse_startline_header(message, request, clntSock, doc_root);
+      if (status == -1) 
+        return;
+      byte_in_string = byte_in_string - (did_receive+1);
+      memcpy( repeat_buffer  , (raw_buf->buffer)+(did_receive+1), byte_in_string);
+      memset( message->buffer, '\0'                             , MAX_REQUEST   );
+      memset( raw_buf->buffer, '\0'                             , MAX_REQUEST   );
+      memcpy( message->buffer, repeat_buffer                    , byte_in_string);
+      memset(message, 0, sizeof(HttpMessage));
+      memset(request, 0, sizeof(HttpRequest));
+
     }
 
 
