@@ -5,6 +5,8 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+//#include <sys/sendfile.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>
@@ -139,22 +141,122 @@ void send_response(int status, int clntSocket, string doc_root, void * request){
 
   HttpRequest * reqptr = (HttpRequest *) request;
 
-  char * buffer;
+  string response; 
   if (status==200) {
-    buffer = (char *) "HTTP/1.1 200 OK\r\nServer: TritonSever\r\nLast-Modified: \r\nContent-Type: \r\nContent-Length: \r\n\r\n";
-    doc_root = doc_root+reqptr->path;
+
+
+    if (!strcmp(reqptr->path, "/") ){
+      reqptr->path = (char *)"/index.html";
+
+    }
+
+    //something with real path???
+
+
+   // check if have permission with real path
+
+
+
+    const char * path_to_file = (doc_root+reqptr->path).c_str();
+
+
+    char file_path [PATH_MAX];
+    char * abs_path = realpath(path_to_file, file_path);
+    
+    if (abs_path){
+      int permission = strncmp ( doc_root.c_str(), abs_path, strlen(doc_root.c_str()));
+      if (permission != 0) {
+        response = "HTTP/1.1 403 Forbidden\r\nServer: TritonSever\r\n\r\n";
+        const char * buffer = response.c_str();
+        ssize_t numBytesSent = send(clntSocket, buffer, strlen(buffer), 0);
+        if (numBytesSent != (ssize_t)strlen(buffer))
+          DieWithSystemMessage("send() failed");
+        return;
+      }
+
+    } else {
+      //real path fail
+
+
+    }
+
+    //assume have permission
+    //Getting size of file
+    //
+    //check permission, if file is there or not, if path is legal or not
+    FILE * req_file = fopen(path_to_file, "r+");
+
+    if (req_file == NULL){
+      response = "HTTP/1.1 404 Not Found\r\nServer: TritonSever\r\n\r\n";
+    } else {   
+      // int fd = fileno(req_file);
+      fseek(req_file, 0, SEEK_END);
+      int size = ftell(req_file);
+      fseek(req_file, 0, SEEK_SET);
+      string st_size = to_string(size);
+
+
+      //Get last modified
+      char time_buffer [200];
+      struct tm * time;
+      struct stat attr;
+      stat(path_to_file, &attr);
+      time = gmtime(&(attr.st_mtime));
+      strftime(time_buffer, sizeof (time_buffer), "%a, %d %b %Y %H:%M:%S %Z", time);
+      printf ("last modified time is %s\n", time_buffer);
+      string st_time(time_buffer);
+    
+
+
+     size = size + 0;
+     //check extension
+     char * dot =  strrchr (path_to_file, '.');
+     dot = dot + 1;
+
+
+    //different string depending on extension
+     if (!strcmp(dot, "jpg")){
+       response = "HTTP/1.1 200 OK\r\nServer: TritonSever\r\nLast-Modified: "
+         +st_time
+         +"\r\nContent-Type: image/jpeg\r\nContent-Length: "
+         +st_size
+         +"\r\n\r\n";
+     } else if (!strcmp(dot, "png")) {
+       response = "HTTP/1.1 200 OK\r\nServer: TritonSever\r\nLast-Modified: "
+         +st_time
+         +"\r\nContent-Type: image/png\r\nContent-Length: "
+         +st_size
+         +"\r\n\r\n";
+     } else if (!strcmp(dot, "html")){
+       response = "HTTP/1.1 200 OK\r\nServer: TritonSever\r\nLast-Modified: "
+         +st_time
+         +"\r\nContent-Type: text/html\r\nContent-Length: "
+         +st_size
+         +"\r\n\r\n";
+     } else {
+       //malformed either null or extension not accepted 
+       response = "HTTP/1.1 400 Client Error\r\nServer: TritonSever\r\n\r\n";
+     }
+        
+    }
+       
+   // ssize_t numBytesSent = sendfile(clntSocket, fd, NULL, size);
+
+    //use sendfile to send image 
   } else if (status == 400){
-    buffer = (char *) "HTTP/1.1 400 Client Error\r\nServer: TritonSever\r\n\r\n";
+    response = "HTTP/1.1 400 Client Error\r\nServer: TritonSever\r\n\r\n";
   } else if (status == 403) {
-    buffer = (char *) "HTTP/1.1 403 Forbidden\r\nServer: TritonSever\r\n\r\n";
+    response = "HTTP/1.1 403 Forbidden\r\nServer: TritonSever\r\n\r\n";
 
   } else if (status == 404) {
-    buffer = (char *) "HTTP/1.1 404 Not Found\r\nServer: TritonSever\r\n\r\n";
+    response = "HTTP/1.1 404 Not Found\r\nServer: TritonSever\r\n\r\n";
 
   } else {
     // 500
-    buffer = (char *) "HTTP/1.1 500 Server Error\r\nServer: TritonSever\r\n\r\n";
+    response = "HTTP/1.1 500 Server Error\r\nServer: TritonSever\r\n\r\n";
   }
+
+  const char * buffer = response.c_str();
   ssize_t numBytesSent = send(clntSocket, buffer, strlen(buffer), 0);
   if (numBytesSent != (ssize_t)strlen(buffer))
       DieWithSystemMessage("send() failed");
