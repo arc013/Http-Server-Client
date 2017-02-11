@@ -20,34 +20,6 @@
 
 #include <bitset>
 using namespace std;
-/*static const int MAXPENDING  = 5;
-static const int MAX_REQUEST = 8192;
-void * ThreadMain(void * arg);
-struct ThreadArgs{
-  int clnt_socket;
-  string doc_root;
-  unsigned long clnt_addr;
-};
-
-
-struct HttpRawBuffer{
-  char buffer [MAX_REQUEST];
-
-};
-
-struct HttpMessage{
-  char buffer[MAX_REQUEST];
-}; 
-
-struct HttpRequest{
-  char * method;
-  char * path;
-  char * version;
-  char * host; 
-  char * body;
-  char * connection;
-};*/
-
 void start_httpd(unsigned short port, string doc_root)
 {
 	cerr << "Starting server (port: " << port <<
@@ -172,10 +144,10 @@ void send_error(int status, int clntSocket){
   
   const char * buffer = response.c_str();
 
-  cout << "Line 172 HttpResponse: " << buffer << endl;
-  std::bitset<32> x(clntSocket);
+  //cout << "Line 172 HttpResponse: " << buffer << endl;
+  //std::bitset<32> x(clntSocket);
 
-  std::cout << "clntSocket is " << x <<"||******||"<<endl; 
+  //std::cout << "clntSocket is " << x <<"||******||"<<endl; 
   //cout << "clntSocket is "<< clntSocket << endl;
   ssize_t numBytesSent = send(clntSocket, buffer, strlen(buffer), 0);
   if (numBytesSent != (ssize_t)strlen(buffer))
@@ -230,26 +202,14 @@ int check_htaccess (string htaccess, int clntSocket, unsigned long clnt_addr){
   printf("in check_htaccess\n");
  
   std::ifstream fs (htaccess.c_str());
- // FILE * fp;
- // fp = fopen(htaccess.c_str(), "r");
-
- // if (fp == NULL)
- //   printf("fopen for htaccess failed\n");
- // char * line = (char *)malloc (sizeof (200));
-
   string line;
-
-
-  //printf("does it come here\n");
   while (getline(fs, line)){
     string deny = "deny";
     string allow = "allow";
     if ( strncmp ( deny.c_str(), line.c_str(), strlen(deny.c_str()))==0){
       //if it's a deny line
- //     printf("line 238\n");
    
       string check_line = line.substr(10);
-//      cout << "line 221 string " << check_line << endl;
       size_t found = check_line.find("/");  
       if (found != string::npos){
         // a slash is found then it's normal ip address
@@ -260,8 +220,7 @@ int check_htaccess (string htaccess, int clntSocket, unsigned long clnt_addr){
         }
       } else {
         //need to do DNS lookup
-        //use gethostbyname()
-        // struct hostent * host = gethostbyname(check_line);   
+
         struct addrinfo host;
         struct addrinfo *hostinfo, *current;
                     
@@ -292,10 +251,8 @@ int check_htaccess (string htaccess, int clntSocket, unsigned long clnt_addr){
       }
 
     } else {
-//      printf("line 284\n");
       //check allow
       string check_line = line.substr(11);
-//      cout << "line 256 string " << check_line << endl;
       size_t found = check_line.find("/");
       if (found != string::npos){
       // a slash is found then it's normal ip address
@@ -305,8 +262,6 @@ int check_htaccess (string htaccess, int clntSocket, unsigned long clnt_addr){
         }
       } else {
         //dns look up
-        //
-//        printf("line 278\n");
         struct addrinfo host;
         struct addrinfo *hostinfo, *current;
         int rv;
@@ -315,8 +270,6 @@ int check_htaccess (string htaccess, int clntSocket, unsigned long clnt_addr){
         memset(&host, 0, sizeof(host));
         host.ai_family   = AF_INET;
         host.ai_socktype = SOCK_STREAM;
-
-       // string test = "ieng6-201.ucsd.edu ”;
         
         string cool = "ieng6-201.ucsd.edu";
         int test =  strcmp(cool.c_str(), check_line.c_str());
@@ -325,27 +278,15 @@ int check_htaccess (string htaccess, int clntSocket, unsigned long clnt_addr){
           cout<<"strcmp fail"<<test<<endl;
         }
 
-//        printf("what is check_line.c_str() : %s\n", check_line.c_str());
         if ( ( rv = getaddrinfo( check_line.c_str() , "http" , &host , &hostinfo))!= 0){
           fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));        
         }
        
-        //cout << hostinfo->ai_addr.
         struct sockaddr_in *address;   
- //       printf("line 282\n");
 
         for(current = hostinfo; current != NULL; current = current->ai_next) {
           address = (struct sockaddr_in *) current->ai_addr;
           uint32_t comp = address->sin_addr.s_addr;
-//          std::bitset<32> x(comp);
-//          std::bitset<32> y(clnt_addr);
- 
- //         printf("***********************\n");
-
-  //        std::cout << "comp is " << x <<endl; 
-  //        std::cout << "clnt_addr is " << y <<endl; 
-
-
           if (comp  == ((uint32_t) clnt_addr)){
           //yes permission
           freeaddrinfo(hostinfo);
@@ -414,11 +355,6 @@ void send_response(int clntSocket, string doc_root, void * request, unsigned lon
                 //close(clntSocket);
       return;
     } 
-  //} else {
-    //flag_404 = 1;
-
-      //send_error(404, clntSocket);
-      //return ;   
   }
 
   //check if file even exist
@@ -602,7 +538,7 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
  // const char delim1 [] = "\r\n\r\n";
   const char delim2 [] = " "; 
   const char delim3 [] = ": "; 
-  int check = -1;
+//  int check = -1;
 
   struct HttpRequest * reqptr =  ((struct HttpRequest *) request);
   char * copy  = strdup ( ((struct HttpMessage *) message )-> buffer);
@@ -616,7 +552,7 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
     //return -1; 
   } 
   string get = "GET";
-  printf("method is %s\n", point);
+  //printf("method is %s\n", point);
   if (strcmp(point, get.c_str())!=0){ 
       send_error(400, clntSocket);
       return -1;
@@ -632,7 +568,7 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
     //send_response(400, clntSocket, doc_root, NULL, 0 );
     //return -1;
   }
-  printf("path is %s\n", point);
+ // printf("path is %s\n", point);
 
 //  printf("does it go in parse2\n");
   reqptr -> path = point;
@@ -647,7 +583,7 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
   }
 //  printf("does it go in parse3\n");
   reqptr -> version = point;
-  printf("version is %s\n", point);
+  //printf("version is %s\n", point);
 
   string http_v = "HTTP/1.1";
   int isit=strcmp(point, http_v.c_str());
@@ -659,7 +595,7 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
     return -1;
   }
 
-  while (point!= NULL){
+  /*while (point!= NULL){
     point = strsep (&copy, delim3);
     printf("key is = %s\n", point+1);
     if (strcmp(point+1, "Host")==0){
@@ -677,11 +613,52 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
       point = strsep(&copy, delim0);
     //  printf("token point = %s\n", point+1);
     }
+  }*/
+
+  //printf("before while loop copy is %s\n", copy);
+  point = strsep(&copy, delim0);
+  point = strsep(&copy, delim0);
+  printf("before while loop copy is %s\n", copy);
+  while (strlen(point)!=0 ){
+
+    //point = strsep(&copy, delim0);
+    printf( "key val pair is :%shihihihihi\n", point);
+    printf( "anything here? %s\n", copy);
+    char * key = strsep( &point, delim3);
+
+    printf ( "strsep for rn key: %s\n", key);
+    printf ( "strsep for rn value: %s\n", point);
+
+
+    if (key == NULL || point ==NULL) { 
+      send_error(400, clntSocket);  
+      return-1;
+    }
+    if (strcmp(key, "Host")==0){
+      reqptr->host = point;
+    } else if (strcmp(key, "Connection")==0){
+      reqptr->connection = point;
+    }
+
+    if(strcmp(copy, "\r\n")==0){ break;}
+    point = strsep(&copy, delim0);
+    point = strsep(&copy, delim0);
+    printf("length of point is: %d", (int)strlen(point));
+    printf("length of copy is: %d", (int)strlen(copy));
+
+    
+
   }
-//  if ( reqptr->host == NULL || reqptr->connection == NULL)
-//    send_response(400, clntSocket, doc_root, NULL );
-//    return -1;  
-//  end = end + 3;
+
+
+
+  
+
+
+
+
+
+
   printf("struct for request: %s %s %s \n", reqptr->method, reqptr->path, reqptr->version);
  // if (check!=1) { printf("didn't get all header\n");};
   printf("what is connection %s\n", reqptr->connection);
@@ -727,33 +704,17 @@ void HandleTCPClient(int clntSock, string doc_root, unsigned long clnt_addr){
   while (numBytesRcvd > 0) {
 
        
-//    printf("byte_in_string is : %d\n", byte_in_string);
-//    printf("before frame buffer is \n%syipe", buffer);
-
     //memset(buffer, '\0', MAX_REQUEST);
     memcpy((raw_buf->buffer)+byte_in_string, buffer, numBytesRcvd);
     byte_in_string += numBytesRcvd;
 
-
-//    printf("new before frame raw_buf is %s\n", raw_buf->buffer);
-
-
     //returns the position where the first request ends
     int did_receive = FrameRequest(raw_buf, message); 
-
-
   
-
- //   printf("say what raw recv is \n%s\n", raw_buf->buffer);
-  //  cout<< message->buffer <<endl;
-
     printf("after framing\n");
 
     //didn't receive \r\n
     while ( did_receive != -1) {
- //     printf("does it go here?\n");
- //
- //
       
       int status = Parse_startline_header(message, request, clntSock, doc_root, clnt_addr);
       if (status == -1) 
