@@ -649,8 +649,8 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
   reqptr -> version = point;
   printf("version is %s\n", point);
 
-  int isit=strcmp(point, http_v.c_str());
   string http_v = "HTTP/1.1";
+  int isit=strcmp(point, http_v.c_str());
   if (isit != 0){
     //cout<<"isit is" << isit << endl;
     //printf("string one is %s******", point);
