@@ -618,19 +618,12 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
   //printf("before while loop copy is %s\n", copy);
   point = strsep(&copy, delim0);
   point = strsep(&copy, delim0);
-  printf("before while loop copy is %s\n", copy);
   while (strlen(point)!=0 ){
 
     //point = strsep(&copy, delim0);
-    printf( "key val pair is :%shihihihihi\n", point);
-    printf( "anything here? %s\n", copy);
     char * key = strsep( &point, delim3);
 
-    printf ( "strsep for rn key: %s\n", key);
-    printf ( "strsep for rn value: %s\n", point);
-
-
-    if (key == NULL || point ==NULL) { 
+    if (strlen(key) == 0 || strlen(point) ==0) { 
       send_error(400, clntSocket);  
       return-1;
     }
@@ -643,17 +636,10 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
     if(strcmp(copy, "\r\n")==0){ break;}
     point = strsep(&copy, delim0);
     point = strsep(&copy, delim0);
-    printf("length of point is: %d", (int)strlen(point));
-    printf("length of copy is: %d", (int)strlen(copy));
 
     
 
   }
-
-
-
-  
-
 
 
 
