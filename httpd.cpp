@@ -22,13 +22,11 @@
 using namespace std;
 
 
-
+//this function deals with thread spawning 
 void start_httpd(unsigned short port, string doc_root, int pool_mode, int pool_size)
 {
 	cerr << "Starting server (port: " << port <<
 		", doc_root: " << doc_root << ")" << endl;
-
-
   //create socket
   int servSock;
   if ((servSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
@@ -44,17 +42,13 @@ void start_httpd(unsigned short port, string doc_root, int pool_mode, int pool_s
   if (bind(servSock, (struct sockaddr*) &servAddr, sizeof(servAddr)) < 0)
     DieWithSystemMessage("bind() failed");
 
- 
-
-    
+  // if it's pool mode  
   if (pool_mode == 1){
     if (listen(servSock, pool_size+1) < 0)
       DieWithSystemMessage("listen() failed");
-
     pthread_t * client_thread  = (pthread_t *) malloc (pool_size * sizeof(pthread_t));
-    //pthread_t  client_thread[100];
-
     int i;
+    // spawn n threads
     for (i=0; i<pool_size; i++){
       struct poolThread_arg * thread_arg = (struct poolThread_arg *) malloc(sizeof(struct poolThread_arg));
       thread_arg->servSock = servSock;
@@ -63,76 +57,54 @@ void start_httpd(unsigned short port, string doc_root, int pool_mode, int pool_s
       if (thread_status < 0)
         cerr << "spawn thread failed" << endl;
     }
-
-
     for (i=0; i<pool_size; i++){
       pthread_join(client_thread[i], NULL);
-
     }
     free(client_thread);
-
-    //for (;;){
-
-
-    //}
-
-    
   } else {
+    //nopool mode
 
+ 
+    // Mark the socket so it will listen for incoming connections
+    if (listen(servSock, MAXPENDING) < 0)
+      DieWithSystemMessage("listen() failed");
 
-  // Mark the socket so it will listen for incoming connections
-  if (listen(servSock, MAXPENDING) < 0)
-    DieWithSystemMessage("listen() failed");
+    for (;;) { // Run forever
+      struct sockaddr_in clntAddr; // Client address
+      // Set length of client address structure (in-out parameter)
+      socklen_t clntAddrLen = sizeof(clntAddr);
+      // Wait for a client to connect
+      int clntSock = accept(servSock, (struct sockaddr *) &clntAddr, &clntAddrLen);
+      unsigned long client_address = clntAddr.sin_addr.s_addr;
+      if (clntSock < 0)
+        printf("accept() failed");
+      // clntSock is connected to a client!
 
+      char clntName[INET_ADDRSTRLEN]; // String to contain client address
+      if (inet_ntop(AF_INET, &clntAddr.sin_addr.s_addr, clntName,
+          sizeof(clntName)) != NULL)
+        printf("Handling client %s/%d\n", clntName, ntohs(clntAddr.sin_port));
+      else
+        puts("Unable to get client address");
 
-  
-
-
-  for (;;) { // Run forever
-    struct sockaddr_in clntAddr; // Client address
-    // Set length of client address structure (in-out parameter)
-    socklen_t clntAddrLen = sizeof(clntAddr);
-
-    // Wait for a client to connect
-    int clntSock = accept(servSock, (struct sockaddr *) &clntAddr, &clntAddrLen);
-    unsigned long client_address = clntAddr.sin_addr.s_addr;
-    if (clntSock < 0)
-      printf("accept() failed");
-
-
-    // clntSock is connected to a client!
-
-    char clntName[INET_ADDRSTRLEN]; // String to contain client address
-    if (inet_ntop(AF_INET, &clntAddr.sin_addr.s_addr, clntName,
-        sizeof(clntName)) != NULL)
-      printf("Handling client %s/%d\n", clntName, ntohs(clntAddr.sin_port));
-    else
-      puts("Unable to get client address");
-
-
-    
-
-    //spawning new thread for each incoming client
-
-    struct ThreadArgs * thread_arg = (struct ThreadArgs *) malloc(sizeof(struct ThreadArgs));
-    if (thread_arg == NULL)
-      cerr << "malloc failed"<<endl;
-    thread_arg->clnt_socket = clntSock;
-    thread_arg->doc_root    = doc_root;
-    thread_arg->clnt_addr   = client_address;
-
-
-    pthread_t thread;
-    int thread_status = pthread_create( &thread, NULL, ThreadMain, thread_arg);
-    if (thread_status<0)
-      cerr<<"pthread create failed"<<endl;
+      //spawning new thread for each incoming client
+      struct ThreadArgs * thread_arg = (struct ThreadArgs *) malloc(sizeof(struct ThreadArgs));
+      if (thread_arg == NULL)
+        cerr << "malloc failed"<<endl;
+      thread_arg->clnt_socket = clntSock;
+      thread_arg->doc_root    = doc_root;
+      thread_arg->clnt_addr   = client_address;
+      pthread_t thread;
+      int thread_status = pthread_create( &thread, NULL, ThreadMain, thread_arg);
+      if (thread_status<0)
+        cerr<<"pthread create failed"<<endl;
+    }
   }
-  }
-
-
 }
 
 
+
+// thread function for pool
 void * PoolThread(void * thread_arg){
 
   struct sockaddr_in clntAddr;
@@ -147,20 +119,30 @@ void * PoolThread(void * thread_arg){
     unsigned long client_address = clntAddr.sin_addr.s_addr;
     if (clntSock < 0)
       printf("accept() failed");
+    // clntSock is connected to a client!
     char clntName[INET_ADDRSTRLEN];
     if (inet_ntop(AF_INET, &clntAddr.sin_addr.s_addr, clntName,
-        sizeof(clntName)) != NULL)
-      printf("Handling client %s/%d\n", clntName, ntohs(clntAddr.sin_port));
-    else
-      puts("Unable to get client address"); 
+        sizeof(clntName)) != NULL) {
+      printf("Handling client %s/%d\n", clntName, ntohs(clntAddr.sin_port)); 
+    } else {
+      puts("Unable to get client address");
+    }
+    struct timeval timeout;      
+    timeout.tv_sec  = 5;
+    timeout.tv_usec = 0;
     HandleTCPClient( clntSock , doc_root,client_address);
+    if (setsockopt (clntSock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout,
+          sizeof(timeout)) < 0) {
+      close(clntSock);
+    }
+    
   }
   return NULL;
 }
 
 
 
-
+//thread function for no pool
 void * ThreadMain(void * thread_arg){
 
   pthread_detach (pthread_self());
@@ -168,12 +150,19 @@ void * ThreadMain(void * thread_arg){
   string doc_root              = ((struct ThreadArgs *) thread_arg)->doc_root;
   unsigned long client_address = ((struct ThreadArgs *) thread_arg)->clnt_addr;
   free(thread_arg);
+  struct timeval timeout;      
+  timeout.tv_sec  = 5;
+  timeout.tv_usec = 0;
   HandleTCPClient( client_socket, doc_root, client_address);
+  if (setsockopt (client_socket, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout,
+                sizeof(timeout)) < 0) {
+    close(client_socket);
+  }
   return thread_arg;
 
 }
 
-
+//specialize error function to send any httprespose that's not 200
 void send_error(int status, int clntSocket){
   printf("sending error with status %d", status);
    
@@ -188,11 +177,11 @@ void send_error(int status, int clntSocket){
     printf("this should never happen in send_error\n");
     return;
   }
-  
   const char * buffer = response.c_str();
   ssize_t numBytesSent = send(clntSocket, buffer, strlen(buffer), 0);
   if (numBytesSent != (ssize_t)strlen(buffer))
       printf("send() failed\n");
+  //if it's 400, then close the socket
   if (status == 400) { 
     close(clntSocket);
   }
@@ -200,12 +189,15 @@ void send_error(int status, int clntSocket){
 
 
 
+//check_line holds the address from .htaccess file 
+//this function checks whether clnt address matches that address
 int check_permission(string check_line, unsigned long clnt_addr){
 
   printf("inside check_permission\n");
   char * line  = (char *)check_line.c_str();
   string slash = "/";
   char * delim = (char *)slash.c_str();
+  //getting the address just before the slash
   char * token = strsep(&line, delim);
   struct sockaddr_in check_addr;
   int ip = -1;
@@ -213,25 +205,28 @@ int check_permission(string check_line, unsigned long clnt_addr){
   if (token!= NULL){
     ip = inet_pton(AF_INET, token, &check_addr.sin_addr);
     if (ip != 1) { printf("inet_pton failed \n"); }
-
   }
   long_address = check_addr.sin_addr.s_addr;
   token = strsep(&line, delim);
 
+  //how many bits to shift
   int bit = 32 - atoi(token);
 
 //  std::bitset<32> x(long_address);
 //  std::bitset<32> y(clnt_addr);
-
 //  std::cout << "long address is " << x <<endl; 
 //  std::cout << "clnt address is " << y <<endl;
  
   if ( uint32_t ( long_address >> bit)  == uint32_t (clnt_addr >> bit)){
+     // they are the same
      return -1;
   }
+  //they are not the same
   return 0;
 }
 
+
+//checking to see if client address matches a DNS lookup
 int dns_lookup(string check_line, unsigned long clnt_addr ){
    struct addrinfo host;
    struct addrinfo *hostinfo, *current;
@@ -242,20 +237,28 @@ int dns_lookup(string check_line, unsigned long clnt_addr ){
           printf("get addrinfo failed\n");     
    }
    struct sockaddr_in *address; 
+   //loop through the list of addresses to see if there's a match
    for(current = hostinfo; current != NULL; current = current->ai_next) {
      address = (struct sockaddr_in *) current->ai_addr;
      if (address->sin_addr.s_addr == ((uint32_t) clnt_addr)){
-       //no permission
+       //match
        freeaddrinfo(hostinfo);
        return -1;
      }
    }
    freeaddrinfo(hostinfo);
+   //no match
    return 0;
 
 }
 
 
+
+/* Given a .htaccess file path, this function will check if the client has permission
+ * based on the content of the .htaccess file
+ * if client has permission this function returns 0, if no permission then return
+ * -1 to indicate 403 needs to be sent
+ */
 int check_htaccess (string htaccess, unsigned long clnt_addr){
   printf("in check_htaccess\n");
  
@@ -272,8 +275,7 @@ int check_htaccess (string htaccess, unsigned long clnt_addr){
         // a slash is found then it's normal ip address
         if (check_permission(check_line,clnt_addr)==-1){
           //no permission
-          cout << "line 275\n";
-          //send_error(403, clntSocket);
+          //-1 for 403
           return -1;
         }
       } else {
@@ -281,8 +283,7 @@ int check_htaccess (string htaccess, unsigned long clnt_addr){
         int dns = dns_lookup(check_line, clnt_addr);
         //if found match for deny
         if (dns == -1){
-          cout << "line 284\n";
-          //send_error(403, clntSocket);
+          //-1 for 403
           return -1;
         }
       }
@@ -307,11 +308,15 @@ int check_htaccess (string htaccess, unsigned long clnt_addr){
     }
 
   }
+  //allow!
   return 0;
 }
 
 
-
+/* if parsing and framing went successfully, this function will determine 
+ * what to send, either 200 if everything goes well or 403, 404 depending on the
+ * issue
+ */
 void send_response(int clntSocket, string doc_root, void * request, unsigned long clnt_addr){
 
   HttpRequest * reqptr = (HttpRequest *) request;
@@ -375,93 +380,86 @@ void send_response(int clntSocket, string doc_root, void * request, unsigned lon
   }
 
   //check file permission mode
-  //
   printf( "what is size %d\n", (int)attr.st_size);
-  if (!(attr.st_mode & S_IROTH)){
-
-//  if ((access(path_to_file, F_OK)!= -1) && (!(attr.st_mode & S_IROTH))){
-    printf("line 371\n");
-    send_error(403, clntSocket);
-    return;
-  }
+  
 
   
-    //assume have permission
-    //Getting size of file
-    //
-    //check permission, if file is there or not, if path is legal or not
+   if ((access(path_to_file, F_OK)!= -1) && !(attr.st_mode & S_IROTH) ){
+     send_error(403, clntSocket);
+     return ;
+   }
+   
+  //check permission, if file is there or not, if path is legal or not
   req_file = fopen(path_to_file, "r");
-  if (req_file == NULL){   
+  if (req_file == NULL){  
+    //file doesn't exist
     send_error(404, clntSocket);
     return ;   
-  } else {  
-      //fd = fileno(req_file);
-      fd = open (path_to_file, O_RDONLY);
-      //printf("fd is %d\n", fd);
-      fseek(req_file, 0, SEEK_END);
-      size = ftell(req_file);
-      fseek(req_file, 0, SEEK_SET);
+  } else { 
+    
+    fd = open (path_to_file, O_RDONLY);
+    fseek(req_file, 0, SEEK_END);
+    size = ftell(req_file);
+    fseek(req_file, 0, SEEK_SET);
 
-      std::ostringstream ss;
-      ss << size;
-      string st_size = ss.str();
+    std::ostringstream ss;
+    ss << size;
+    //get the size of the file
+    string st_size = ss.str();
       
-      //Get last modified
-      char time_buffer [200];
-      struct tm * time;
+    //Get last modified
+    char time_buffer [200];
+    struct tm * time;
       
-      //stat(path_to_file, &attr);
-      time = gmtime(&(attr.st_mtime));
-      strftime(time_buffer, sizeof (time_buffer), "%a, %d %b %Y %H:%M:%S %Z", time);
-     // printf ("last modified time is %s\n", time_buffer);
-      string st_time(time_buffer);
+    //stat(path_to_file, &attr);
+    time = gmtime(&(attr.st_mtime));
+    strftime(time_buffer, sizeof (time_buffer), "%a, %d %b %Y %H:%M:%S %Z", time);
+    // printf ("last modified time is %s\n", time_buffer);
+    string st_time(time_buffer);
    
-     //check extension
-     const char * dot0 =  strrchr (path_to_file, '.');
-     char * dot = strdup(dot0);
-     dot = dot + 1;
+    //check file extension
+    const char * dot0 =  strrchr (path_to_file, '.');
+    char * dot = strdup(dot0);
+    dot = dot + 1;
 
 
     //different string depending on extension
-     if (!strcmp(dot, "jpg")){
-       response = "HTTP/1.1 200 OK\r\nServer: TritonSever\r\nLast-Modified: "
-         +st_time
-         +"\r\nContent-Type: image/jpeg\r\nContent-Length: "
-         +st_size
-         +"\r\n\r\n";
-      // fread(data_buf, 1, size, req_file);
-       
-     } else if (!strcmp(dot, "png")) {
-       response = "HTTP/1.1 200 OK\r\nServer: TritonSever\r\nLast-Modified: "
-         +st_time
-         +"\r\nContent-Type: image/png\r\nContent-Length: "
-         +st_size
-         +"\r\n\r\n";
-     } else if (!strcmp(dot, "html")){
-       response = "HTTP/1.1 200 OK\r\nServer: TritonSever\r\nLast-Modified: "
-         +st_time
-         +"\r\nContent-Type: text/html\r\nContent-Length: "
-         +st_size
-         +"\r\n\r\n";
-     } else {
+    if (!strcmp(dot, "jpg")){      
+      response = "HTTP/1.1 200 OK\r\nServer: TritonSever\r\nLast-Modified: "
+        +st_time
+        +"\r\nContent-Type: image/jpeg\r\nContent-Length: "
+        +st_size
+        +"\r\n\r\n";       
+    } else if (!strcmp(dot, "png")) {
+      response = "HTTP/1.1 200 OK\r\nServer: TritonSever\r\nLast-Modified: "
+        +st_time
+        +"\r\nContent-Type: image/png\r\nContent-Length: "
+        +st_size
+        +"\r\n\r\n";
+    } else if (!strcmp(dot, "html")){
+      response = "HTTP/1.1 200 OK\r\nServer: TritonSever\r\nLast-Modified: "
+        +st_time
+        +"\r\nContent-Type: text/html\r\nContent-Length: "
+        +st_size
+        +"\r\n\r\n";
+    } else {
        //malformed either null or extension not accepted 
-       send_error(400, clntSocket);
-       return;
+      send_error(400, clntSocket);
+      return;
        //response = "HTTP/1.1 400 Client Error\r\nServer: TritonSever\r\n\r\n";
-     }
+    }
         
+  
   }
        
 
-  //use sendfile to send image 
+  //use sendfile to send the actual file  
   const char * buffer = response.c_str();
 
   cout << "Line 274 HttpResponse: " << buffer <<"\n"<< endl;
   ssize_t numBytesSent = send(clntSocket, buffer, strlen(buffer), 0);
   if (numBytesSent != (ssize_t)strlen(buffer))
       printf("send() failed");
-
- 
   numBytesSent = 0;
   while (numBytesSent < size) {
     numBytesSent = sendfile(clntSocket, fd, NULL, size);
@@ -469,6 +467,8 @@ void send_response(int clntSocket, string doc_root, void * request, unsigned lon
   }
 }
 
+
+//find /r/n/r/n, if found return the position if not found return -1
 int FrameRequest(void* raw_buf, void* message){
 
 
@@ -477,7 +477,6 @@ int FrameRequest(void* raw_buf, void* message){
   struct HttpRawBuffer * rawbufptr  = (struct HttpRawBuffer *) raw_buf ;
   struct HttpMessage   * messageptr = (struct HttpMessage   *) message ;
 
- // cout << rawbufptr->buffer << "thor" << endl;
   for ( i=0; i< MAX_REQUEST-3; i++ ){
     char crlf1 =  rawbufptr -> buffer[i];
     char crlf2 =  rawbufptr -> buffer[i+1];
@@ -492,6 +491,11 @@ int FrameRequest(void* raw_buf, void* message){
 }
 
 
+
+/* parse the entire message, if any part if malformed then return -1 to indicate
+ * for 400 response, else if there's a connection: close in header send 0 else
+ * send 1 to indicate to close connection
+ */
 int Parse_startline_header ( void* message, void* request, int clntSocket, string doc_root, unsigned long clnt_addr){
 
 
@@ -508,7 +512,6 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
   printf("Entire buffer is %s\n", copy);
   char * point = strsep( &copy, delim2);
   if (point == NULL){
-
     //send_error(400, clntSocket);
     return -1;   
   } 
@@ -563,9 +566,9 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
   //printf("before while loop copy is %s\n", copy);
   point = strsep(&copy, delim0);
   point = strsep(&copy, delim0);
+  //parsing key value pair
   while (strlen(point)!=0 ){
 
-    //point = strsep(&copy, delim0);
     char * key = strsep( &point, delim3);
 
     if (strlen(key) == 0 || strlen(point) ==0) { 
@@ -591,7 +594,6 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
 
 
   printf("struct for request: %s %s %s \n", reqptr->method, reqptr->path, reqptr->version);
- // if (check!=1) { printf("didn't get all header\n");};
   printf("what is connection %s\n", reqptr->connection);
 
  
@@ -610,6 +612,9 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
 
 
 }
+
+
+// this function handle receiving the http request
 void HandleTCPClient(int clntSock, string doc_root, unsigned long clnt_addr){
   printf("in handle tcp\n");
   char buffer[MAX_REQUEST]; 
@@ -634,7 +639,9 @@ void HandleTCPClient(int clntSock, string doc_root, unsigned long clnt_addr){
   memset(message, 0, sizeof(HttpMessage));
   memset(request, 0, sizeof(HttpRequest));
 
- 
+
+
+  // recv loop
   while (numBytesRcvd > 0) {
 
        
@@ -647,7 +654,7 @@ void HandleTCPClient(int clntSock, string doc_root, unsigned long clnt_addr){
   
     printf("after framing\n");
 
-    //didn't receive \r\n
+    //keep parsing request till \r\n\r\n not found 
     while ( did_receive != -1) {
       
       int status = Parse_startline_header(message, request, clntSock, doc_root, clnt_addr);
