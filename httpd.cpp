@@ -256,7 +256,7 @@ int dns_lookup(string check_line, unsigned long clnt_addr ){
 }
 
 
-int check_htaccess (string htaccess, int clntSocket, unsigned long clnt_addr){
+int check_htaccess (string htaccess, unsigned long clnt_addr){
   printf("in check_htaccess\n");
  
   std::ifstream fs (htaccess.c_str());
@@ -272,16 +272,19 @@ int check_htaccess (string htaccess, int clntSocket, unsigned long clnt_addr){
         // a slash is found then it's normal ip address
         if (check_permission(check_line,clnt_addr)==-1){
           //no permission
-          send_error(403, clntSocket);
+          cout << "line 275\n";
+          //send_error(403, clntSocket);
           return -1;
         }
       } else {
         //need to do DNS lookup
         int dns = dns_lookup(check_line, clnt_addr);
         //if found match for deny
-        if (dns == -1)
-          send_error(403, clntSocket);
+        if (dns == -1){
+          cout << "line 284\n";
+          //send_error(403, clntSocket);
           return -1;
+        }
       }
     } else {
       //check allow
@@ -318,9 +321,9 @@ void send_response(int clntSocket, string doc_root, void * request, unsigned lon
   FILE * req_file = NULL;
 
   string response; 
- 
+
   if (!strcmp(reqptr->path, "/") ){
-    reqptr->path = (char *)"index.html";
+    reqptr->path = (char *)"/index.html";
   }
   
   string reqptr_str (reqptr->path); 
@@ -331,11 +334,13 @@ void send_response(int clntSocket, string doc_root, void * request, unsigned lon
 
   char * abs_path = realpath(path_to_file, file_path);
   char * abs_doc  = realpath(doc_root.c_str(), file_path1);
+  printf("abs_path is %s\n", abs_path);
     
   if (abs_path!=NULL && abs_doc!=NULL){
 
     int permission = strncmp ( abs_doc, abs_path, strlen(abs_doc));
     if (permission != 0) {
+      printf("is it here\n");
       send_error(403, clntSocket);
                 //close(clntSocket);
       return;
@@ -350,8 +355,10 @@ void send_response(int clntSocket, string doc_root, void * request, unsigned lon
   //check if it's a directory and htaccess file exist
   if ( S_ISDIR(attr.st_mode) != 0 && access(htaccess.c_str(), F_OK)!=-1 ){
     
-    if ( check_htaccess(htaccess, clntSocket , clnt_addr)==-1)
+    if ( check_htaccess(htaccess, clnt_addr)==-1){
+      send_error(403, clntSocket);
       return ;
+    }
 
   } else {
     // not a directory
@@ -359,14 +366,21 @@ void send_response(int clntSocket, string doc_root, void * request, unsigned lon
     int last_slash = path_string.find_last_of("/");
     string ht_str  = path_string.substr(0, last_slash) + "/.htaccess";
     if (access(ht_str.c_str(), F_OK)!=-1){
-      if (check_htaccess(ht_str, clntSocket , clnt_addr)==-1)
+      if (check_htaccess(ht_str, clnt_addr)==-1){
+        send_error(403, clntSocket);
         return; 
+      }
     }
  
   }
 
   //check file permission mode
-  if ((!(attr.st_mode & S_IROTH)) && (access(path_to_file, F_OK)!= -1)){
+  //
+  printf( "what is size %d\n", (int)attr.st_size);
+  if (!(attr.st_mode & S_IROTH)){
+
+//  if ((access(path_to_file, F_OK)!= -1) && (!(attr.st_mode & S_IROTH))){
+    printf("line 371\n");
     send_error(403, clntSocket);
     return;
   }
@@ -495,26 +509,26 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
   char * point = strsep( &copy, delim2);
   if (point == NULL){
 
-    send_error(400, clntSocket);
+    //send_error(400, clntSocket);
     return -1;   
   } 
   string get = "GET";
   if (strcmp(point, get.c_str())!=0){ 
-      send_error(400, clntSocket);
+      //send_error(400, clntSocket);
       return -1;
   }
 
   reqptr -> method = point;
   point = strsep (&copy, delim2);
   if (point == NULL){
-    send_error(400, clntSocket);
+    //send_error(400, clntSocket);
     return -1;   
   }
   reqptr -> path = point;
 
   point = strsep (&copy, delim0);
   if (point == NULL){
-    send_error(400, clntSocket);
+    //send_error(400, clntSocket);
     return -1;   
   }
   reqptr -> version = point;
@@ -522,7 +536,7 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
   string http_v = "HTTP/1.1";
   int isit=strcmp(point, http_v.c_str());
   if (isit != 0){
-    send_error(400, clntSocket);
+    //send_error(400, clntSocket);
     return -1;
   }
 
@@ -555,7 +569,7 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
     char * key = strsep( &point, delim3);
 
     if (strlen(key) == 0 || strlen(point) ==0) { 
-      send_error(400, clntSocket);  
+      //send_error(400, clntSocket);  
       return-1;
     }
     if (strcmp(key, "Host")==0){
@@ -583,11 +597,14 @@ int Parse_startline_header ( void* message, void* request, int clntSocket, strin
  
   send_response(clntSocket, doc_root, request, clnt_addr);
   string close = " close";
+  //if connction is close 
   if ( (reqptr->connection != NULL)  && !strcmp(reqptr->connection, close.c_str())){
     return 0;
   }
  
 
+
+  //change back to 1 keep alive;
   return 1;
  
 
@@ -634,8 +651,10 @@ void HandleTCPClient(int clntSock, string doc_root, unsigned long clnt_addr){
     while ( did_receive != -1) {
       
       int status = Parse_startline_header(message, request, clntSock, doc_root, clnt_addr);
-      if (status == -1) 
+      if (status == -1) {
+        send_error(400, clntSock);
         return;
+      }
       byte_in_string = byte_in_string - (did_receive+1);
       memcpy( repeat_buffer  , (raw_buf->buffer)+(did_receive+1), byte_in_string);
       memset( message->buffer, '\0'                             , MAX_REQUEST   );
@@ -648,7 +667,6 @@ void HandleTCPClient(int clntSock, string doc_root, unsigned long clnt_addr){
         return;
       }
       did_receive = FrameRequest(raw_buf, message);
-
 
     }
 
