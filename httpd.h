@@ -17,6 +17,12 @@ struct ThreadArgs{
 };
 
 
+struct  poolThread_arg {
+  int servSock;
+  string doc_root;
+
+};
+
 struct HttpRawBuffer{
   char buffer [MAX_REQUEST];
 
@@ -37,7 +43,7 @@ struct HttpRequest{
 
 
 
-void start_httpd(unsigned short port, string doc_root);
+void start_httpd(unsigned short port, string doc_root, int pool_mode, int pool_size);
 
 
 void DieWithUserMessage(const char *msg, const char *detail);
@@ -60,5 +66,9 @@ int check_permission(string check_line, unsigned long clnt_addr);
 void send_error(int status, int clntSocket);
 
 void * ThreadMain(void * thread_arg);
+
+void * PoolThread(void * thread_arg);
+
+int dns_lookup(string check_line, unsigned long clnt_addr );
 
 #endif // HTTPD_H
